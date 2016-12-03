@@ -1,0 +1,26 @@
+TypingGame in C++
+
+Objective: to build a typing game that uses a keyboard device for input and to train finger mechanics such as speed, accuracy, and precision.
+
+User inputs text
+   check if true/false
+Read block text
+     kept on heap
+Load new data (next game)
+
+GUI display:
+-start/exit
+-user input
+-timer
+-displays current wpm
+-displays text
+          *support for basic text & unique-drawn text (own graphics)
+
+Text processing:
+-read in a file
+      *convert to basic text-input handling (ASCII)
+               Unique font displays incorrect characters
+-put all characters 
+                                                                      
+               
+    
