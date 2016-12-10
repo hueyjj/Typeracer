@@ -1,30 +1,52 @@
+using namespace std;
 #include <iostream>
+#include <ctype.h>
+#include <sstream>
 #include <stdio.h>
 #include <stdlib.h>
+#include <queue>
 #include <windows.h>
+#include <Windowsx.h>
 #include <commctrl.h>
-using namespace std;
 #include "../Header/Main.h"
-//#include <tchar.h>
-//#include "../Header/TextProcessor.h"
+#include <tchar.h>
+#include "../Header/TextProcessor.h"
 #include <string>
+#include <time.h>
 
-HWND hwnd, hwnd_typeBox;
+#define _countof(array) (sizeof(array) / sizeof(array[0]))
+#define ID_START_BUTTON 101
+#define ID_RESET_BUTTON 102
+#define ID_TIMER 103
+
+template <typename T>
+string to_string(T value) {
+  ostringstream ss;
+  ss << value;
+  return ss.str();
+}
+
+HWND hwnd, hwnd_displayBox, hwnd_typeBox, hwnd_wpmBox, hwnd_startBn, hwnd_resetBn;
+HINSTANCE dll, dll2;
 SetWindowSubclassType SetWindowSubclassFunction;
 DefSubclassProcType DefSubclassProcFunction;
 const char g_szClassName[] = "Typeracer";
-int SCREEN_WIDTH = 0, SCREEN_LENGTH = 0;
-RECT MAIN_RECT, EDIT_RECT;
+bool timer_start = false;
+int SCREEN_WIDTH = 0, SCREEN_LENGTH = 0, timer = 0;
+RECT MAIN_RECT, DISPLAY_RECT, WPM_RECT, EDIT_RECT, START_RECT, RESET_RECT;
+TextProcessor txt;
+char inputBuffer[256]; // hold user input
+queue<string> strQueue;
+INPUT inputs[1];
+
 
 // Main()
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                   LPSTR lpCmdLine, int nCmdShow)
-{
+                   LPSTR lpCmdLine, int nCmdShow) {
   // FreeConsole();
   loadLibrary();
 
   WNDCLASSEX wc;
-  // HWND hwnd;
   MSG Msg;
 
   // Registering the Window Class
@@ -41,34 +63,38 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
   wc.lpszClassName = g_szClassName;
   wc.hIconSm       = LoadIcon(NULL, IDI_APPLICATION);
 
-  if(!RegisterClassEx(&wc))
+  if (!RegisterClassEx(&wc))
     {
       MessageBox(NULL, "Window Registration Failed!", "Error!",
                  MB_ICONEXCLAMATION | MB_OK);
       return 0;
     }
 
+  //TODO dynamically load txt files from a subdirectory ../Textfiles
+  txt.loadFile("File.txt"); // load txt file
+  strQueue = txt.storage;
+
   initVar(); // initialize variable
+  hwnd = createMainWindow(hInstance);
+  hwnd_displayBox = createDisplayBox(hwnd, hInstance);
+  hwnd_wpmBox = createWPMBox(hwnd, hInstance);
+  hwnd_typeBox = createEditBox(hwnd, hInstance);
+  hwnd_startBn = createStartButton(hwnd, hInstance);
+  hwnd_resetBn = createResetButton(hwnd, hInstance);
 
-  createMainWindow(hInstance);
-  createEditBox(hwnd);
-
-  // Display window
   ShowWindow(hwnd, nCmdShow);
-  //  UpdateWindow(hwnd); // for WM_PAINT
 
-  // Message Loop
-  while(GetMessage(&Msg, NULL, 0, 0) > 0)
+  while (GetMessage(&Msg, NULL, 0, 0) > 0)
     {
       TranslateMessage(&Msg);
       DispatchMessage(&Msg);
     }
+  //TODO segmentation fault when program closes
   return Msg.wParam;
 }
 
 // The Window Procedure
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
   switch (msg)
     {
     case WM_CREATE:
@@ -79,23 +105,40 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
       cout << "WM_SIZE message" << endl;
       break;
     case WM_CLOSE:
-      cout << GetLastErrorAsString() << endl;
+      freeLibrary();
+      cout << "WM_CLOSE message" << endl;
       DestroyWindow(hwnd);
       break;
     case WM_DESTROY:
+      cout << "WM_DESTROY message" << endl;
       PostQuitMessage(0);
       break;
     case WM_KEYDOWN:
-      switch (wParam){
-        // case VK_DELETE:
-        //   cout << "Del key pressed" << endl;
-        //   break;
-      }
+      switch (wParam)
+        {
+        }
       cout << "(Main window) key down" << endl;
       break;
     case WM_LBUTTONDOWN:
-      SetFocus(hwnd); // focus on window
+      SetFocus(hwnd); // focus on main window
       cout << "Main window focus" << endl;
+      break;
+    case WM_COMMAND:
+      switch (wParam)
+        {
+        case ID_START_BUTTON:
+          cout << "Start button pressed" << endl;
+          timer_start = true;
+          SetTimer(hwnd_displayBox, ID_TIMER, 1000, (TIMERPROC) &TimerProc);
+          break;
+        case ID_RESET_BUTTON:
+          cout << "Reset button pressed" << endl;
+          timer = 0;
+          timer_start = false;
+          KillTimer(hwnd_displayBox, ID_TIMER);
+          SetWindowText(hwnd_wpmBox, "0");
+          break;
+        }
       break;
     default:
       return DefWindowProc(hwnd, msg, wParam, lParam);
@@ -104,8 +147,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 LRESULT CALLBACK EditProc(HWND hWnd_edit, UINT uMsg, WPARAM wParam,
-                          LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
-{
+                          LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
   switch (uMsg)
     {
     case WM_CREATE:
@@ -114,36 +156,73 @@ LRESULT CALLBACK EditProc(HWND hWnd_edit, UINT uMsg, WPARAM wParam,
       switch (wParam)
         {
         case VK_RETURN:
+          Edit_GetLine(hwnd_typeBox, 0, inputBuffer, 256);
+          cout << inputBuffer << endl;
           cout << "(Edit Window): Return key pressed" << endl;
+          break;
+        case VK_SPACE:
+          Edit_GetLine(hwnd_typeBox, 0, inputBuffer, 256);
+          string str(inputBuffer);
+          string tr = trim(str);
+          if (strQueue.front().compare(tr) == 0) {
+            strQueue.pop();
+            if (strQueue.front() == " ") {
+              strQueue.pop();
+              cout << "space poppped" << endl;
+              Edit_SetText(hwnd_typeBox, "");
+              inputs[0].type = INPUT_KEYBOARD; //NOTE random space after clearing text w/ ""
+              inputs[0].ki.wVk = VK_BACK;
+              SendInput(_countof(inputs), inputs, sizeof(inputs));
+
+            }
+            cout << "Correct input" << endl;
+          }
+          cout << "Spacebar pressed" << endl;
           break;
         }
       break;
     case WM_LBUTTONDOWN:
       SetFocus(hWnd_edit); // focus on edit control
       cout << "Edit window focus" << endl;
+      break;
     }
   return DefSubclassProcFunction(hWnd_edit, uMsg, wParam, lParam);
 }
 
-void initVar(){
-  if (SCREEN_LENGTH <= 0) SCREEN_LENGTH = GetSystemMetrics(SM_CXSCREEN);
-  cout << "SCREEN_LENGTH: " << SCREEN_LENGTH << endl;
-  if (SCREEN_WIDTH <= 0) SCREEN_WIDTH = GetSystemMetrics(SM_CYSCREEN);
-  cout << "SCREEN_WIDTH: " << SCREEN_WIDTH << endl;
+void CALLBACK TimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
+  string s;
+  if (timer_start) {
+    timer++;
+  }
+  s = to_string(timer); // convert int to c-string for display
+  cout << "Timer: " << timer << endl;
+  SetWindowText(hwnd_wpmBox, s.c_str());
 }
 
-void createMainWindow(HINSTANCE hInstance){
+void initVar() {
+  if (SCREEN_LENGTH <= 0) SCREEN_LENGTH = GetSystemMetrics(SM_CXSCREEN);
+  //  cout << "SCREEN_LENGTH: " << SCREEN_LENGTH << endl;
+  if (SCREEN_WIDTH <= 0) SCREEN_WIDTH = GetSystemMetrics(SM_CYSCREEN);
+  // cout << "SCREEN_WIDTH: " << SCREEN_WIDTH << endl;
+}
+
+HWND createMainWindow(HINSTANCE hInstance) {
   // Create Window
   int WIN_LENGTH = SCREEN_LENGTH * 0.66;
   int WIN_WIDTH = SCREEN_WIDTH * 0.66;
 
-  hwnd = CreateWindowEx( WS_EX_CLIENTEDGE,
-                         g_szClassName,
-                         "Typeracer",
-                         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
-                         0, 0, WIN_LENGTH, WIN_WIDTH,
-                         NULL, NULL, hInstance, NULL);
-
+  HWND hwnd = CreateWindowEx(WS_EX_CLIENTEDGE,
+                             g_szClassName,
+                             "Typeracer",
+                             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU
+                             | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
+                             0, 0, WIN_LENGTH, WIN_WIDTH,
+                             NULL, NULL, hInstance, NULL);
+  if (hwnd == NULL){
+    MessageBox(NULL, "Main window failed to load!", "Error!",
+               MB_ICONEXCLAMATION | MB_OK);
+    return 0;
+  }
 
   GetWindowRect(hwnd, &MAIN_RECT); // init MAIN_RECT
 
@@ -151,88 +230,165 @@ void createMainWindow(HINSTANCE hInstance){
   int xPos = (SCREEN_LENGTH - MAIN_RECT.right) / 2;
   int yPos = (SCREEN_WIDTH - MAIN_RECT.bottom) / 2;
   SetWindowPos(hwnd, 0, xPos, yPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
-
-  if (hwnd == NULL){
-    MessageBox(NULL, "Main window failed to load!", "Error!",
-               MB_ICONEXCLAMATION | MB_OK);
-    return;
-  }
   cout << "Main window created" << endl;
+  return hwnd;
 }
 
-void createEditBox(HWND hwnd){
+HWND createDisplayBox(HWND hwnd, HINSTANCE hInstance) {
+  int DISPLAY_LENGTH = (MAIN_RECT.right - MAIN_RECT.left) * 0.80;
+  int DISPLAY_WIDTH = 400;
+  HWND  hwnd_displayBox = CreateWindowEx(WS_EX_LEFT,
+                                         "STATIC",
+                                         "",
+                                         WS_VISIBLE | WS_CHILD | SS_LEFT,
+                                         0, 0, DISPLAY_LENGTH, DISPLAY_WIDTH,
+                                         hwnd, NULL, hInstance, NULL);
+  if (hwnd_displayBox == NULL) {
+    MessageBox(NULL, "Displaybox Creation Failed!", "Error!",
+               MB_ICONEXCLAMATION | MB_OK);
+    return 0;
+  }
+  GetWindowRect(hwnd_displayBox, &DISPLAY_RECT);
+  SetWindowText(hwnd_displayBox, txt.getBuffer());
+  return hwnd_displayBox;
+}
+
+HWND createWPMBox(HWND hwnd, HINSTANCE hInstance) {
+  int WPM_LENGTH = 60;
+  int WPM_WIDTH = 25;
+  HWND  hwnd_wpmBox = CreateWindowEx(WS_EX_LEFT,
+                                     "STATIC",
+                                     "",
+                                     WS_VISIBLE | WS_CHILD | SS_LEFT,
+                                     0, 0, WPM_LENGTH, WPM_WIDTH,
+                                     hwnd, NULL, hInstance, NULL);
+  if (hwnd_wpmBox == NULL) {
+    MessageBox(NULL, "WPM box Creation Failed!", "Error!",
+               MB_ICONEXCLAMATION | MB_OK);
+    return 0;
+  }
+  SetWindowText(hwnd_wpmBox, "0");
+  GetWindowRect(hwnd_wpmBox, &WPM_RECT);
+  return hwnd_wpmBox;
+}
+
+HWND createEditBox(HWND hwnd, HINSTANCE hInstance) {
   // User input text box
-  //WS_EX_PALETTEWINDOW
   int EDIT_LENGTH = (MAIN_RECT.right - MAIN_RECT.left) * 0.50;
   int EDIT_WIDTH = 25;
-  cout << "EDIT_LENGTH: " << EDIT_LENGTH << endl;
-  cout << "EDIT_WIDTH: " << EDIT_WIDTH << endl;
+  // cout << "EDIT_LENGTH: " << EDIT_LENGTH << endl;
+  // cout << "EDIT_WIDTH: " << EDIT_WIDTH << endl;
 
-  hwnd_typeBox = CreateWindowEx(WS_EX_CLIENTEDGE,
-                                "EDIT",
-                                NULL,
-                                WS_CHILD | WS_VISIBLE | WS_BORDER| ES_LEFT,
-                                0, 0, EDIT_LENGTH, EDIT_WIDTH,
-                                hwnd, NULL , NULL, NULL);
-  GetWindowRect(hwnd_typeBox, &EDIT_RECT);
-
-  if(hwnd_typeBox == NULL){
-    MessageBox(NULL, "WindowSubclass Creation Failed!", "Error!",
+  HWND hwnd_typeBox = CreateWindowEx(WS_EX_CLIENTEDGE,
+                                     "RICHEDIT50W",
+                                     NULL,
+                                     WS_CHILD | WS_VISIBLE | WS_BORDER| WS_TABSTOP,
+                                     0, 0, EDIT_LENGTH, EDIT_WIDTH,
+                                     hwnd, NULL , hInstance, NULL);
+  if (hwnd_typeBox == NULL) {
+    MessageBox(NULL, "Editbox Creation Failed!", "Error!",
                MB_ICONEXCLAMATION | MB_OK);
-    return;
+    return 0;
   }
 
-  //ShowWindow(hwnd, SW_SHOW);
+  GetWindowRect(hwnd_typeBox, &EDIT_RECT);
   SetWindowSubclassFunction(hwnd_typeBox, EditProc, 0, 0) ?
     cout << "Editbox subclassed successfully" << endl :
     cout << "Editbox subclassed failed" << endl;
-
-  //UpdateWindow(hwnd);
-  //SetFocus(hwnd_typeBox);
-  //  ShowWindow(hwnd, SW_SHOW);
-  //  UpdateWindow(hwnd);
+  return hwnd_typeBox;
 }
 
-//TODO: Free library and its functions
-void loadLibrary(){
-  HINSTANCE dll = LoadLibrary("C:\\Windows\\System32\\ComCtl32.dll");
-
-  if (dll != NULL){
-    cout << "DLL loaded successfully" << endl;
+HWND createStartButton(HWND hwnd, HINSTANCE hInstance){
+  int START_LENGTH = 60;
+  int START_WIDTH = 25;
+  HWND hwnd_startBn = CreateWindowEx(WS_EX_CLIENTEDGE,
+                                     "BUTTON",
+                                     "start",
+                                     WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                                     0, 0, START_LENGTH, START_WIDTH,
+                                     hwnd, (HMENU)ID_START_BUTTON, hInstance, NULL);
+  if (hwnd_startBn == NULL) {
+    MessageBox(NULL, "Start button Creation Failed!", "Error!",
+               MB_ICONEXCLAMATION | MB_OK);
+    return 0;
   }
-  else{
+  GetWindowRect(hwnd_startBn, &START_RECT);
+  return hwnd_startBn;
+}
+
+HWND createResetButton(HWND hwnd, HINSTANCE hInstance){
+  int RESET_LENGTH = 60;
+  int RESET_WIDTH = 25;
+  HWND hwnd_resetBn = CreateWindowEx(WS_EX_CLIENTEDGE,
+                                     "BUTTON",
+                                     "reset",
+                                     WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                                     0, 0, RESET_LENGTH, RESET_WIDTH,
+                                     hwnd, (HMENU)ID_RESET_BUTTON, hInstance, NULL);
+  if (hwnd_resetBn == NULL) {
+    MessageBox(NULL, "Reset button Creation Failed!", "Error!",
+               MB_ICONEXCLAMATION | MB_OK);
+    return 0;
+  }
+  GetWindowRect(hwnd_resetBn, &RESET_RECT);
+  return hwnd_resetBn;
+}
+
+void loadLibrary() {
+  dll2 = LoadLibrary("Msftedit.dll");
+  if (dll2 != NULL) {
+    cout << "DLL2 loaded successfully" << endl;
+  } else {
+    cout << "DLL2 failed to load" << endl;
+  }
+
+  dll = LoadLibrary("ComCtl32.dll");
+
+  if (dll != NULL) {
+    cout << "DLL loaded successfully" << endl;
+  } else {
     cout << "DLL failed to load" << endl;
   }
 
   SetWindowSubclassFunction = (SetWindowSubclassType)GetProcAddress(dll, "SetWindowSubclass");
 
-  if(SetWindowSubclassFunction != NULL){
+  if (SetWindowSubclassFunction != NULL) {
     cout << "SetWindowSubclass function loaded successfully" << endl;
-  }
-  else{
+  } else {
     cout << "SetWindowSubclass function failed to load" << endl;
   }
 
   DefSubclassProcFunction = (DefSubclassProcType)GetProcAddress(dll, "DefSubclassProc");
 
-  if(DefSubclassProcFunction != NULL){
+  if (DefSubclassProcFunction != NULL) {
     cout << "DefSubclassProc function loaded successfully" << endl;
-  }
-  else{
+  } else {
     cout << "DefSubclassProc function failed to load" << endl;
   }
+
+}
+
+void freeLibrary() {
+  FreeLibrary(dll);
+  FreeLibrary(dll2);
+  dll = dll2 = NULL;
+  cout << "freeLibrary() called" << endl;
 }
 
 //Returns the last Win32 error, in string format. Returns an empty string if there is no error.
-std::string GetLastErrorAsString(){
+std::string GetLastErrorAsString() {
   //Get the error message, if any.
   DWORD errorMessageID = ::GetLastError();
   if(errorMessageID == 0)
     return std::string(); //No error message has been recorded
 
   LPSTR messageBuffer = nullptr;
-  size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                               NULL, errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+  size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                               FORMAT_MESSAGE_FROM_SYSTEM |
+                               FORMAT_MESSAGE_IGNORE_INSERTS,
+                               NULL, errorMessageID,
+                               MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                               (LPSTR)&messageBuffer, 0, NULL);
 
   std::string message(messageBuffer, size);
 
@@ -242,38 +398,62 @@ std::string GetLastErrorAsString(){
   return message;
 }
 
-void resizeAll(){
+void resizeAll() {
   //Resize main window
 
   //Resize edit window
 }
 
-void rePos(){
-  GetWindowRect(hwnd, &MAIN_RECT); // set new window rect
-  GetWindowRect(hwnd_typeBox, &EDIT_RECT);
+void rePos() {
   // Reposition main window
+  GetWindowRect(hwnd, &MAIN_RECT);
+
+  // Reposition display window
+  int displayXPos = 30;
+  int displayYPos = 30;
+  int displayLength = DISPLAY_RECT.right - DISPLAY_RECT.left;
+  SetWindowPos(hwnd_displayBox, 0, displayXPos, displayYPos,
+               0, 0, SWP_NOZORDER | SWP_NOSIZE);
+  GetWindowRect(hwnd_displayBox, &DISPLAY_RECT);
+
+  // Reposition wpm window
+  int wpmXPos = displayLength + displayXPos;
+  int wpmYPos = displayYPos;
+  SetWindowPos(hwnd_wpmBox, 0, wpmXPos + 10, wpmYPos,
+               0, 0, SWP_NOZORDER | SWP_NOSIZE);
+  GetWindowRect(hwnd_wpmBox, &WPM_RECT);
 
   // Reposition edit window
   int main_midpoint = (MAIN_RECT.right - MAIN_RECT.left) / 2;
   int edit_midpoint = (EDIT_RECT.right - EDIT_RECT.left) / 2;
   long editXPos = main_midpoint - edit_midpoint;
   long editYPos = (MAIN_RECT.bottom - MAIN_RECT.top) * 0.80;
-  // cout << "MAIN_RECT.right: " << MAIN_RECT.right << endl;
-  // cout << "MAIN_RECT.left: " << MAIN_RECT.left << endl;
-  //cout << "MAIN_RECT.bottom: " << MAIN_RECT.bottom << endl;
-  //cout << "MAIN_RECT.top: " << MAIN_RECT.top << endl;
-  // cout << "EDIT_RECT.right: " << EDIT_RECT.right << endl;
-  // cout << "EDIT_RECT.left: " << EDIT_RECT.left << endl;
-  //cout << "EDIT_RECT.top: " << EDIT_RECT.top << endl;
-  //cout << "EDIT_RECT.bottom: " << EDIT_RECT.bottom << endl;
-  // cout << "main_midpointer: " << main_midpoint << endl;
-  // cout << "edit_midpoint: " << edit_midpoint << endl;
-  // cout << "(main window) xPos: " << MAIN_RECT.left << endl;
-  // cout << "(main window) yPos: " << MAIN_RECT.top << endl;
-  // cout << "(main window) length: " << MAIN_RECT.right << endl;
-  // cout << "(main window) width: " << MAIN_RECT.bottom << endl;
-  // cout << "editXPos: " << editXPos << endl;
-  // cout << "editYPos: " << editYPos << endl;
-  SetWindowPos(hwnd_typeBox, 0, editXPos, editXPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+  SetWindowPos(hwnd_typeBox, 0, editXPos, editYPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+  GetWindowRect(hwnd_typeBox, &EDIT_RECT);
 
+  // Reposition start button
+  int startBnLength = START_RECT.right - START_RECT.left;
+  int startBnXPos = editXPos + EDIT_RECT.right - EDIT_RECT.left;
+  int startBnYPos = editYPos;
+  SetWindowPos(hwnd_startBn, 0, startBnXPos+10, startBnYPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+  GetWindowRect(hwnd_startBn, &START_RECT);
+
+  // Reposition stop button
+  int resetBnXPos = startBnXPos + startBnLength;
+  int resetBnYPos = editYPos;
+  SetWindowPos(hwnd_resetBn, 0, resetBnXPos+20, resetBnYPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+  GetWindowRect(hwnd_resetBn, &RESET_RECT);
+}
+
+int calcWPM() {
+
+}
+
+string trim(const string &str) {
+  //cout << str << "asdfasdf" << endl;
+  size_t pos1 = str.find_first_not_of(' ');
+  if (string::npos == pos1) return str;
+  size_t pos2 = str.find_last_not_of(' ');
+  //  cout << "pos1 " << pos1 << endl;
+  return str.substr(pos1, pos2 - pos1);
 }

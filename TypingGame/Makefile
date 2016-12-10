@@ -16,7 +16,7 @@ EXEBIN  = Typeracer
 all: $(EXEBIN)
 
 $(EXEBIN) : $(OBJECTS) 
-	$(COMPILE) $(LINK_FLAGS) -o $(EXEBIN) $(OBJECTS)
+	$(COMPILE) $(LINK_FLAGS) -std=c++11 -o $(EXEBIN) $(OBJECTS)
 	rm $(DIR)*.o
 
 $(OBJECTS) : $(SOURCES) 
