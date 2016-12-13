@@ -42,8 +42,8 @@ char* TextProcessor::formatBuffer(char *fb, int fbLength) {
   }
 
   char *cleanBuffer = new char[cblength + 1];
-
   int k = 0;
+
   for (int i = 0; i < fbLength; i++) {
     if (isprint(fb[i])) { // || isspace(fb[i]
       cleanBuffer[k] =  fb[i]; // put printable chars in a clean buffer
@@ -93,7 +93,7 @@ void TextProcessor::loadFile(const char *file) {
   // printAll();
   infile.close();
   cout << "Text file loaded" << endl;
-  printAll();
+  //printAll();
 }
 
 char* TextProcessor::getBuffer() {

@@ -18,6 +18,7 @@ void initVar(void);
 HWND createMainWindow(HINSTANCE hInstance);
 HWND createDisplayBox(HWND hwnd, HINSTANCE hInstance);
 HWND createWPMBox(HWND hwnd, HINSTANCE hInstance);
+HWND createErrorBox(HWND hwnd, HINSTANCE hInstance);
 HWND createEditBox(HWND hwnd, HINSTANCE hInstance);
 HWND createStartButton(HWND hwnd, HINSTANCE hInstance);
 HWND createResetButton(HWND hwnd, HINSTANCE hInstance);
@@ -26,7 +27,7 @@ void print(string str);
 void createConsole(void);
 void resizeAll(void);
 void rePos(void);
-int calcWPM();
+int calcWPM(int words, int seconds);
 string trim(const string &str);
 
 #endif

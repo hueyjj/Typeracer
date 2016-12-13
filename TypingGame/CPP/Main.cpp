@@ -26,17 +26,17 @@ string to_string(T value) {
   return ss.str();
 }
 
-HWND hwnd, hwnd_displayBox, hwnd_typeBox, hwnd_wpmBox, hwnd_startBn, hwnd_resetBn;
+HWND hwnd, hwnd_displayBox, hwnd_typeBox, hwnd_wpmBox, hwnd_errorBox, hwnd_startBn, hwnd_resetBn;
 HINSTANCE dll, dll2;
 SetWindowSubclassType SetWindowSubclassFunction;
 DefSubclassProcType DefSubclassProcFunction;
 const char g_szClassName[] = "Typeracer";
 bool timer_start = false;
-int SCREEN_WIDTH = 0, SCREEN_LENGTH = 0, timer = 0;
-RECT MAIN_RECT, DISPLAY_RECT, WPM_RECT, EDIT_RECT, START_RECT, RESET_RECT;
+int SCREEN_WIDTH = 0, SCREEN_LENGTH = 0, timer = 0, WORDS = 0;
+RECT MAIN_RECT, DISPLAY_RECT, WPM_RECT, EDIT_RECT, START_RECT, RESET_RECT, ERROR_RECT;
 TextProcessor txt;
 char inputBuffer[256]; // hold user input
-queue<string> strQueue;
+queue<string> strQueue, trashQueue;
 INPUT inputs[1];
 
 
@@ -78,6 +78,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
   hwnd = createMainWindow(hInstance);
   hwnd_displayBox = createDisplayBox(hwnd, hInstance);
   hwnd_wpmBox = createWPMBox(hwnd, hInstance);
+  hwnd_errorBox = createErrorBox(hwnd, hInstance);
   hwnd_typeBox = createEditBox(hwnd, hInstance);
   hwnd_startBn = createStartButton(hwnd, hInstance);
   hwnd_resetBn = createResetButton(hwnd, hInstance);
@@ -129,13 +130,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case ID_START_BUTTON:
           cout << "Start button pressed" << endl;
           timer_start = true;
-          SetTimer(hwnd_displayBox, ID_TIMER, 1000, (TIMERPROC) &TimerProc);
+          SetTimer(hwnd_wpmBox, ID_TIMER, 1000, (TIMERPROC) &TimerProc);
           break;
         case ID_RESET_BUTTON:
           cout << "Reset button pressed" << endl;
+          while (!strQueue.empty()) {
+            trashQueue.push(strQueue.front());
+            strQueue.pop();
+          }
+          while (!trashQueue.empty()) {
+            strQueue.push(trashQueue.front());
+            trashQueue.pop();
+          }
           timer = 0;
+          WORDS = 0;
           timer_start = false;
-          KillTimer(hwnd_displayBox, ID_TIMER);
+          KillTimer(hwnd_wpmBox, ID_TIMER);
           SetWindowText(hwnd_wpmBox, "0");
           break;
         }
@@ -165,18 +175,24 @@ LRESULT CALLBACK EditProc(HWND hWnd_edit, UINT uMsg, WPARAM wParam,
           string str(inputBuffer);
           string tr = trim(str);
           if (strQueue.front().compare(tr) == 0) {
+            trashQueue.push(strQueue.front());
             strQueue.pop();
+            WORDS++;
             if (strQueue.front() == " ") {
+              trashQueue.push(strQueue.front());
               strQueue.pop();
               cout << "space poppped" << endl;
               Edit_SetText(hwnd_typeBox, "");
-              inputs[0].type = INPUT_KEYBOARD; //NOTE random space after clearing text w/ ""
+              //NOTE delete random empty char after clearing edit control w/ ""
+              inputs[0].type = INPUT_KEYBOARD;
               inputs[0].ki.wVk = VK_BACK;
               SendInput(_countof(inputs), inputs, sizeof(inputs));
-
+              SetWindowText(hwnd_errorBox, "");
             }
             cout << "Correct input" << endl;
           }
+          SetWindowText(hwnd_errorBox, strQueue.front().c_str());
+
           cout << "Spacebar pressed" << endl;
           break;
         }
@@ -194,7 +210,9 @@ void CALLBACK TimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
   if (timer_start) {
     timer++;
   }
-  s = to_string(timer); // convert int to c-string for display
+  int wpm = calcWPM(WORDS, timer);
+  // cout << "wpm " << wpm << endl;
+  s = to_string(wpm) + " wpm"; // convert int to c-string for display
   cout << "Timer: " << timer << endl;
   SetWindowText(hwnd_wpmBox, s.c_str());
 }
@@ -256,20 +274,39 @@ HWND createDisplayBox(HWND hwnd, HINSTANCE hInstance) {
 HWND createWPMBox(HWND hwnd, HINSTANCE hInstance) {
   int WPM_LENGTH = 60;
   int WPM_WIDTH = 25;
-  HWND  hwnd_wpmBox = CreateWindowEx(WS_EX_LEFT,
-                                     "STATIC",
-                                     "",
-                                     WS_VISIBLE | WS_CHILD | SS_LEFT,
-                                     0, 0, WPM_LENGTH, WPM_WIDTH,
-                                     hwnd, NULL, hInstance, NULL);
+  HWND hwnd_wpmBox = CreateWindowEx(WS_EX_LEFT,
+                                    "STATIC",
+                                    "",
+                                    WS_VISIBLE | WS_CHILD | SS_LEFT,
+                                    0, 0, WPM_LENGTH, WPM_WIDTH,
+                                    hwnd, NULL, hInstance, NULL);
   if (hwnd_wpmBox == NULL) {
     MessageBox(NULL, "WPM box Creation Failed!", "Error!",
                MB_ICONEXCLAMATION | MB_OK);
     return 0;
   }
-  SetWindowText(hwnd_wpmBox, "0");
+  SetWindowText(hwnd_wpmBox, "0 wpm");
   GetWindowRect(hwnd_wpmBox, &WPM_RECT);
   return hwnd_wpmBox;
+}
+
+HWND createErrorBox(HWND hwnd, HINSTANCE hInstance) {
+  int ERROR_LENGTH = 300;
+  int ERROR_WIDTH = 20;
+  HWND hwnd_errorBox = CreateWindowEx(WS_EX_LEFT,
+                                      "STATIC",
+                                      "",
+                                      WS_VISIBLE | WS_CHILD | SS_LEFT,
+                                      0, 0, ERROR_LENGTH, ERROR_WIDTH,
+                                      hwnd, NULL, hInstance, NULL);
+  if (hwnd_errorBox == NULL) {
+    MessageBox(NULL, "Error box Creation Failed!", "Error!",
+               MB_ICONEXCLAMATION | MB_OK);
+    return 0;
+  }
+  SetWindowText(hwnd_errorBox, strQueue.front().c_str());
+  GetWindowRect(hwnd_errorBox, &ERROR_RECT);
+  return hwnd_errorBox;
 }
 
 HWND createEditBox(HWND hwnd, HINSTANCE hInstance) {
@@ -407,10 +444,12 @@ void resizeAll() {
 void rePos() {
   // Reposition main window
   GetWindowRect(hwnd, &MAIN_RECT);
-
+  int main_midpoint = (MAIN_RECT.right - MAIN_RECT.left) / 2;
   // Reposition display window
-  int displayXPos = 30;
-  int displayYPos = 30;
+
+  int display_midpoint = (DISPLAY_RECT.right - DISPLAY_RECT.left) / 2;
+  int displayXPos = main_midpoint - display_midpoint;
+  int displayYPos = (MAIN_RECT.bottom - MAIN_RECT.top) * .05;
   int displayLength = DISPLAY_RECT.right - DISPLAY_RECT.left;
   SetWindowPos(hwnd_displayBox, 0, displayXPos, displayYPos,
                0, 0, SWP_NOZORDER | SWP_NOSIZE);
@@ -424,12 +463,17 @@ void rePos() {
   GetWindowRect(hwnd_wpmBox, &WPM_RECT);
 
   // Reposition edit window
-  int main_midpoint = (MAIN_RECT.right - MAIN_RECT.left) / 2;
   int edit_midpoint = (EDIT_RECT.right - EDIT_RECT.left) / 2;
   long editXPos = main_midpoint - edit_midpoint;
   long editYPos = (MAIN_RECT.bottom - MAIN_RECT.top) * 0.80;
   SetWindowPos(hwnd_typeBox, 0, editXPos, editYPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
   GetWindowRect(hwnd_typeBox, &EDIT_RECT);
+
+  // Reposition error window
+  int errorXPos = editXPos;
+  int errorYPos = editYPos - 30;
+  SetWindowPos(hwnd_errorBox, 0, errorXPos, errorYPos, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+  GetWindowRect(hwnd_errorBox, &ERROR_RECT);
 
   // Reposition start button
   int startBnLength = START_RECT.right - START_RECT.left;
@@ -445,15 +489,17 @@ void rePos() {
   GetWindowRect(hwnd_resetBn, &RESET_RECT);
 }
 
-int calcWPM() {
-
+int calcWPM(int words, int seconds) {
+  cout << "words " << words << " seconds " << seconds << endl;
+  double min = (double)seconds / (double)60;
+  cout << "min " << min << endl;
+  double wpm = (double)words / min;
+  return wpm;
 }
 
 string trim(const string &str) {
-  //cout << str << "asdfasdf" << endl;
   size_t pos1 = str.find_first_not_of(' ');
   if (string::npos == pos1) return str;
   size_t pos2 = str.find_last_not_of(' ');
-  //  cout << "pos1 " << pos1 << endl;
   return str.substr(pos1, pos2 - pos1);
 }
