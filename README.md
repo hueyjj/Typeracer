@@ -1,6 +1,6 @@
 # Typeracer
 Typeracer is a speed typing game that measures your words per minute status (wpm). The game uses calls from the windows api (win32).
-![Alt text](/C/Github/Typeracer.jpg?raw=true "Typeracer")
+![Alt text](/Typeracer.jpg?raw=true "Typeracer")
 
 # Requirements
 Windows OS
