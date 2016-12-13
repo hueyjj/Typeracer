@@ -1,0 +1,11 @@
+TODO/Future improvements list
+
+dynamically load new text files
+dynamically read new/old text files
+improve UI
+        font
+        background
+fit text file onto whole display screen or cut off
+    add text scrolling
+create end-game condition
+       currently nothing indicating when racing ends
